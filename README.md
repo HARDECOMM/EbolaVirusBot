@@ -1,6 +1,3 @@
-The Employee Onboarding Guide is designed to facilitate a smooth transition into our organization for new hires. 
-This resource provides essential information about company culture, policies, and procedures, ensuring that employees feel welcomed and informed from day one. 
-It includes a checklist of pre-onboarding tasks, expectations for the first day, details about training and development opportunities, and key contacts for support. 
-Our goal is to empower new employees, helping them integrate into the team effectively and start their journey with confidence.
+# EbolaVirus Assistant Bot
 
- 
+The EbolaVirus Assistant Bot is designed to provide accurate information and support related to the Ebola virus, including symptoms, prevention methods, and treatment options. It serves as a reliable resource for users seeking guidance on Ebola-related inquiries, promoting awareness and education to help mitigate the spread of the virus. Users can interact with the bot to receive timely responses and resources to enhance their understanding of Ebola and its implications.
