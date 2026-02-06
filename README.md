@@ -19,14 +19,15 @@ The system delivers **brief, accurate, and reliable Ebola-related health guidanc
 
 ## 🏗️ Project Structure
 
-
+<pre>
 .
-├── main.py # Streamlit app (chat UI + inference)
-├── pinecone.py # PDF ingestion & vector indexing
-├── combined_ebola_pdf.pdf # Ebola knowledge base
-├── .env # API keys
+├── main.py                  # Streamlit app (chat UI + inference)
+├── pinecone.py              # PDF ingestion & vector indexing
+├── combined_ebola_pdf.pdf   # Ebola knowledge base
+├── .env                     # API keys
 ├── requirements.txt
 └── README.md
+</pre>
 
 ---
 ## 🧠 System Architecture (RAG Pipeline)
@@ -114,6 +115,7 @@ Applied AI / Machine Learning Engineer
 ## 📄 License
 
 This project is licensed under the **MIT License**.
+
 
 
 
