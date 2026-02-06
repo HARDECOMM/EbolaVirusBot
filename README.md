@@ -1,3 +1,5 @@
+[streamlit app live](https://ebolavirus.streamlit.app/)
+
 # 🦠 Ebola Virus Guidance Assistant
 
 An AI-powered **Ebola Virus Guidance Chatbot** built with **Streamlit**, **LangChain**, **Google Gemini**, and **Pinecone**.  
@@ -115,6 +117,7 @@ Applied AI / Machine Learning Engineer
 ## 📄 License
 
 This project is licensed under the **MIT License**.
+
 
 
 
