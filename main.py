@@ -30,7 +30,7 @@ if not GOOGLE_API_KEY:
 # Initialize Pinecone and embedding model
 pc = Pinecone(api_key=PINECONE_API_KEY)
 pinecone_index = pc.Index("onb")
-embed_model = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+embed_model = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004")
 
 # Define system prompt template
 system_prompt_template = """
@@ -145,4 +145,5 @@ if user_input:
     
     with st.chat_message("assistant"):
         st.markdown(response)
+
     st.session_state.chat_history.append({"role": "assistant", "content": response})
