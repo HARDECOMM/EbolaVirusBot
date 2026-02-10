@@ -4,6 +4,7 @@ import re
 import concurrent.futures
 from pinecone import Pinecone
 from langchain_community.document_loaders import PyPDFLoader
+from google.generativeai import client as genai_client
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from pinecone import ServerlessSpec
 from tqdm import tqdm
@@ -15,6 +16,11 @@ def split_docs(documents, chunk_size=1500, chunk_overlap=100):
 
 # Load environment variables
 load_dotenv()
+
+# Initialize generative ai
+genai = genai_client.Client(
+    api_key=os.environ["GEMINI_API_KEY"]
+)
 
 # Initialize Pinecone client
 pc = Pinecone(api_key=os.environ["PINECONE_API_KEY"])
@@ -116,4 +122,5 @@ print("\nStarting Pinecone batched upserts...\n")
 batch_upsert(pinecone_index, vectors_to_upsert)
 
 print("\nPinecone vector storage complete!\n")
+
 
