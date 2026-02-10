@@ -18,7 +18,7 @@ def split_docs(documents, chunk_size=1500, chunk_overlap=100):
 load_dotenv()
 
 # Initialize embeddings
-embed_model = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+embed_model = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004")
 
 # Initialize Pinecone client
 pc = Pinecone(api_key=os.environ["PINECONE_API_KEY"])
@@ -30,7 +30,7 @@ existing_index_names = [index.name for index in existing_indexes.indexes]
 if index_name not in existing_index_names:
     pc.create_index(
         name=index_name,
-        dimension=768,  # Dimension for Google's embedding-001
+        dimension=768,  # Dimension for Google's text-embedding-004
         metric='cosine',
         spec=ServerlessSpec(cloud='aws', region='us-east-1')
     )
@@ -118,4 +118,5 @@ def batch_upsert(index, vectors, batch_size=BATCH_SIZE):
 
 print("\nStarting Pinecone batched upserts...\n")
 batch_upsert(pinecone_index, vectors_to_upsert)
+
 print("\nPinecone vector storage complete!\n")
