@@ -2,28 +2,40 @@ import os
 import streamlit as st
 from pinecone import Pinecone
 from dotenv import load_dotenv
-from google import genai
+
+import vertexai
+from vertexai.language_models import TextEmbeddingModel
+
+import google.generativeai as genai
 
 # =========================
 # ENV
 # =========================
 load_dotenv()
 
-client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+PROJECT_ID = os.getenv("GOOGLE_CLOUD_PROJECT")
 
-pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
+# =========================
+# INIT
+# =========================
+genai.configure(api_key=GEMINI_API_KEY)
+
+vertexai.init(project=PROJECT_ID, location="us-central1")
+
+embedding_model = TextEmbeddingModel.from_pretrained(
+    "textembedding-gecko@003"
+)
+
+pc = Pinecone(api_key=PINECONE_API_KEY)
 index = pc.Index("onb")
 
 # =========================
 # EMBED QUERY
 # =========================
 def embed_query(text):
-    res = client.models.embed_content(
-        model="embedding-001",
-        contents=text,
-        config={"task_type": "RETRIEVAL_QUERY"}
-    )
-    return res.embeddings[0].values
+    return embedding_model.get_embeddings([text])[0].values
 
 # =========================
 # RETRIEVE
@@ -42,7 +54,7 @@ def retrieve_context(query):
     )
 
 # =========================
-# GENERATE
+# GENERATE ANSWER
 # =========================
 def generate_answer(query):
     context = retrieve_context(query)
@@ -57,19 +69,15 @@ Question:
 {query}
 """
 
-    model = client.models.generate_content(
-        model="gemini-1.5-flash",
-        contents=prompt
-    )
-
-    return model.text
+    model = genai.GenerativeModel("gemini-1.5-flash")
+    return model.generate_content(prompt).text
 
 # =========================
-# UI
+# STREAMLIT UI
 # =========================
-st.title("Ebola RAG Assistant")
+st.title("🦠 Ebola RAG Assistant")
 
-q = st.chat_input("Ask question")
+q = st.chat_input("Ask your question")
 
 if q:
     st.write(generate_answer(q))
