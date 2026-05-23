@@ -34,7 +34,7 @@ def embed_documents(texts):
 
     for text in texts:
         res = client.models.embed_content(
-            model="text-embedding-004",
+            model="embedding-001",
             contents=text,
             config={"task_type": "RETRIEVAL_DOCUMENT"}
         )
