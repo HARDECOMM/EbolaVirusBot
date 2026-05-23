@@ -8,42 +8,32 @@ from tqdm import tqdm
 from dotenv import load_dotenv
 import google.generativeai as genai
 
-# ==================================================
-# ENV SETUP
-# ==================================================
+# =========================
+# ENV
+# =========================
 load_dotenv()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 
 if not GEMINI_API_KEY or not PINECONE_API_KEY:
-    raise RuntimeError("Missing GEMINI_API_KEY or PINECONE_API_KEY")
+    raise RuntimeError("Missing API keys")
 
-# ==================================================
-# GEMINI CONFIG
-# ==================================================
 genai.configure(api_key=GEMINI_API_KEY)
 
-# ==================================================
-# TEXT SPLITTING
-# ==================================================
-def split_docs(documents, chunk_size=1500, chunk_overlap=100):
+# =========================
+# SPLIT DOCS
+# =========================
+def split_docs(documents):
     splitter = RecursiveCharacterTextSplitter(
-        chunk_size=chunk_size,
-        chunk_overlap=chunk_overlap
+        chunk_size=1500,
+        chunk_overlap=100
     )
     return splitter.split_documents(documents)
 
-# ==================================================
-# RETRY HELPER
-# ==================================================
-def parse_retry_wait_time(error):
-    match = re.search(r"(\d+)s", str(error))
-    return int(match.group(1)) if match else 20
-
-# ==================================================
-# EMBEDDING (DOCUMENT)
-# ==================================================
+# =========================
+# EMBEDDING (FIXED)
+# =========================
 def embed_documents(texts):
     embeddings = []
 
@@ -60,84 +50,53 @@ def embed_documents(texts):
                 break
 
             except Exception as e:
-                print(f"Embedding error (attempt {attempt+1}): {e}")
-
-                wait_time = parse_retry_wait_time(e)
-                time.sleep(wait_time)
+                wait = 10
+                print(f"Retrying embedding: {e}")
+                time.sleep(wait)
 
                 if attempt == 2:
                     raise
 
     return embeddings
 
-# ==================================================
-# PINECONE SETUP
-# ==================================================
+# =========================
+# PINECONE
+# =========================
 pc = Pinecone(api_key=PINECONE_API_KEY)
 index_name = "onb"
 
-existing_indexes = pc.list_indexes().names()
-
-if index_name not in existing_indexes:
+if index_name not in pc.list_indexes().names():
     pc.create_index(
         name=index_name,
         dimension=768,
         metric="cosine",
         spec=ServerlessSpec(cloud="aws", region="us-east-1")
     )
-    print(f"Created Pinecone index: {index_name}")
-    time.sleep(60)
 
 index = pc.Index(index_name)
 
-# ==================================================
+# =========================
 # LOAD PDF
-# ==================================================
-pdf_file_path = "combined_ebola_pdf.pdf"
-loader = PyPDFLoader(pdf_file_path)
-documents = loader.load()
+# =========================
+loader = PyPDFLoader("combined_ebola_pdf.pdf")
+docs = split_docs(loader.load())
 
-docs = split_docs(documents)
+texts = [d.page_content for d in docs]
 
-texts = [doc.page_content for doc in docs]
-
-# ==================================================
-# EMBED DOCUMENTS
-# ==================================================
-print("\n🚀 Embedding documents...\n")
+# =========================
+# EMBED + UPLOAD
+# =========================
 embeddings = embed_documents(texts)
 
-# ==================================================
-# PREPARE VECTORS
-# ==================================================
 vectors = [
-    (str(i), emb, {"text": text})
-    for i, (emb, text) in enumerate(zip(embeddings, texts))
+    (str(i), emb, {"text": txt})
+    for i, (emb, txt) in enumerate(zip(embeddings, texts))
 ]
 
-# ==================================================
-# UPSERT TO PINECONE
-# ==================================================
-def batch_upsert(index, vectors, batch_size=100):
-    batches = [
-        vectors[i:i + batch_size]
-        for i in range(0, len(vectors), batch_size)
-    ]
+def upsert(vectors, batch_size=100):
+    for i in range(0, len(vectors), batch_size):
+        index.upsert(vectors=vectors[i:i+batch_size])
 
-    for i, batch in enumerate(tqdm(batches, desc="Upserting")):
-        for attempt in range(3):
-            try:
-                index.upsert(vectors=batch)
-                break
-            except Exception as e:
-                print(f"Upsert error batch {i+1}: {e}")
-                time.sleep(5 * (attempt + 1))
-                if attempt == 2:
-                    raise
+upsert(vectors)
 
-# ==================================================
-# RUN PIPELINE
-# ==================================================
-print("\n🚀 Starting Pinecone upsert...\n")
-batch_upsert(index, vectors)
-print("\n✅ Ingestion complete!\n")
+print("DONE INGESTION")
