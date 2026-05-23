@@ -19,7 +19,7 @@ index = pc.Index("onb")
 # =========================
 def embed_query(text):
     res = client.models.embed_content(
-        model="text-embedding-004",
+        model="embedding-001",
         contents=text,
         config={"task_type": "RETRIEVAL_QUERY"}
     )
