@@ -1,12 +1,10 @@
 import os
 import time
-import re
 from pinecone import Pinecone, ServerlessSpec
 from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from tqdm import tqdm
 from dotenv import load_dotenv
-import google.generativeai as genai
+from google import genai
 
 # =========================
 # ENV
@@ -16,46 +14,31 @@ load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 
-if not GEMINI_API_KEY or not PINECONE_API_KEY:
-    raise RuntimeError("Missing API keys")
-
-genai.configure(api_key=GEMINI_API_KEY)
+client = genai.Client(api_key=GEMINI_API_KEY)
 
 # =========================
 # SPLIT DOCS
 # =========================
-def split_docs(documents):
+def split_docs(docs):
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=1500,
         chunk_overlap=100
     )
-    return splitter.split_documents(documents)
+    return splitter.split_documents(docs)
 
 # =========================
-# EMBEDDING (FIXED)
+# EMBEDDING (DOCUMENT)
 # =========================
 def embed_documents(texts):
     embeddings = []
 
     for text in texts:
-        for attempt in range(3):
-            try:
-                res = genai.embed_content(
-                    model="text-embedding-004",
-                    content=text,
-                    task_type="retrieval_document"
-                )
-
-                embeddings.append(res["embedding"])
-                break
-
-            except Exception as e:
-                wait = 10
-                print(f"Retrying embedding: {e}")
-                time.sleep(wait)
-
-                if attempt == 2:
-                    raise
+        res = client.models.embed_content(
+            model="text-embedding-004",
+            contents=text,
+            config={"task_type": "RETRIEVAL_DOCUMENT"}
+        )
+        embeddings.append(res.embeddings[0].values)
 
     return embeddings
 
@@ -93,10 +76,6 @@ vectors = [
     for i, (emb, txt) in enumerate(zip(embeddings, texts))
 ]
 
-def upsert(vectors, batch_size=100):
-    for i in range(0, len(vectors), batch_size):
-        index.upsert(vectors=vectors[i:i+batch_size])
+index.upsert(vectors=vectors)
 
-upsert(vectors)
-
-print("DONE INGESTION")
+print("INGESTION COMPLETE")
