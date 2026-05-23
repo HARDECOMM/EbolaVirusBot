@@ -45,9 +45,12 @@ def embed_batch_with_retry(batch_contents, max_attempts=3):
         try:
             embeddings = []
             for text in batch_contents:
-                res = genai.embeddings.create(
+                res = genai.models.embed_content(
                     model="text-embedding-004",
-                    content=text
+                    contents=text,
+                    config={
+                        "task_type": "RETRIEVAL_DOCUMENT"
+                    }
                 )
                 embeddings.append(res.embedding.values)
             return embeddings
