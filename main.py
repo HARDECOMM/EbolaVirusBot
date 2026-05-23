@@ -1,26 +1,29 @@
 import os
 import streamlit as st
 from pinecone import Pinecone
-import google.generativeai as genai
 from dotenv import load_dotenv
+from google import genai
 
+# =========================
+# ENV
+# =========================
 load_dotenv()
 
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
 index = pc.Index("onb")
 
 # =========================
-# EMBED QUERY (FIXED)
+# EMBED QUERY
 # =========================
 def embed_query(text):
-    res = genai.embed_content(
+    res = client.models.embed_content(
         model="text-embedding-004",
-        content=text,
-        task_type="retrieval_query"
+        contents=text,
+        config={"task_type": "RETRIEVAL_QUERY"}
     )
-    return res["embedding"]
+    return res.embeddings[0].values
 
 # =========================
 # RETRIEVE
@@ -54,15 +57,19 @@ Question:
 {query}
 """
 
-    model = genai.GenerativeModel("gemini-1.5-flash")
-    return model.generate_content(prompt).text
+    model = client.models.generate_content(
+        model="gemini-1.5-flash",
+        contents=prompt
+    )
+
+    return model.text
 
 # =========================
 # UI
 # =========================
 st.title("Ebola RAG Assistant")
 
-q = st.chat_input("Ask a question")
+q = st.chat_input("Ask question")
 
 if q:
     st.write(generate_answer(q))
