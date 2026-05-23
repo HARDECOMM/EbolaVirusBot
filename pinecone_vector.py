@@ -1,46 +1,29 @@
 import os
 import time
+from dotenv import load_dotenv
 from pinecone import Pinecone, ServerlessSpec
 from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from dotenv import load_dotenv
-from google import genai
+
+import vertexai
+from vertexai.language_models import TextEmbeddingModel
 
 # =========================
 # ENV
 # =========================
 load_dotenv()
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
-
-client = genai.Client(api_key=GEMINI_API_KEY)
-
-# =========================
-# SPLIT DOCS
-# =========================
-def split_docs(docs):
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=1500,
-        chunk_overlap=100
-    )
-    return splitter.split_documents(docs)
+PROJECT_ID = os.getenv("GOOGLE_CLOUD_PROJECT")
 
 # =========================
-# EMBEDDING (DOCUMENT)
+# INIT VERTEX AI
 # =========================
-def embed_documents(texts):
-    embeddings = []
+vertexai.init(project=PROJECT_ID, location="us-central1")
 
-    for text in texts:
-        res = client.models.embed_content(
-            model="embedding-001",
-            contents=text,
-            config={"task_type": "RETRIEVAL_DOCUMENT"}
-        )
-        embeddings.append(res.embeddings[0].values)
-
-    return embeddings
+embedding_model = TextEmbeddingModel.from_pretrained(
+    "textembedding-gecko@003"
+)
 
 # =========================
 # PINECONE
@@ -62,20 +45,34 @@ index = pc.Index(index_name)
 # LOAD PDF
 # =========================
 loader = PyPDFLoader("combined_ebola_pdf.pdf")
-docs = split_docs(loader.load())
+docs = loader.load()
 
-texts = [d.page_content for d in docs]
+splitter = RecursiveCharacterTextSplitter(
+    chunk_size=1500,
+    chunk_overlap=100
+)
+
+chunks = splitter.split_documents(docs)
+texts = [c.page_content for c in chunks]
 
 # =========================
-# EMBED + UPLOAD
+# EMBEDDINGS (VERTEX AI)
 # =========================
-embeddings = embed_documents(texts)
+def embed_texts(text_list):
+    embeddings = embedding_model.get_embeddings(text_list)
+    return [e.values for e in embeddings]
 
-vectors = [
-    (str(i), emb, {"text": txt})
-    for i, (emb, txt) in enumerate(zip(embeddings, texts))
+print("Embedding documents...")
+vectors = embed_texts(texts)
+
+# =========================
+# UPSERT
+# =========================
+data = [
+    (str(i), vec, {"text": txt})
+    for i, (vec, txt) in enumerate(zip(vectors, texts))
 ]
 
-index.upsert(vectors=vectors)
+index.upsert(vectors=data)
 
 print("INGESTION COMPLETE")
