@@ -16,7 +16,7 @@ index = pc.Index("onb")
 # =========================
 def embed_query(text):
     res = genai.embed_content(
-        model="models/text-embedding-004",
+        model="text-embedding-004",
         content=text,
         task_type="retrieval_query"
     )
