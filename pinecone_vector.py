@@ -41,7 +41,7 @@ def embed_documents(texts):
         for attempt in range(3):
             try:
                 res = genai.embed_content(
-                    model="models/text-embedding-004",
+                    model="text-embedding-004",
                     content=text,
                     task_type="retrieval_document"
                 )
