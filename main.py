@@ -30,12 +30,14 @@ index = pc.Index("onb")  # Ensure the same index as your ingestion script
 # ==================================================
 # Embed query
 # ==================================================
-def embed_query(text: str):
-    res = genai.embed_content(
-        model="models/text-embedding-004",
-        content=text
+def embed_query(text):
+    response = genai.embed_content(
+        model="text-embedding-004",
+        content=text,
+        task_type="retrieval_query"
     )
-    return res["embedding"]
+
+    return response["embedding"]"]
 
 # ==================================================
 # Retrieve context from Pinecone
