@@ -36,8 +36,8 @@ def embed_query(text):
         content=text,
         task_type="retrieval_query"
     )
-
-    return response["embedding"]"]
+    
+    return response["embedding"]
 
 # ==================================================
 # Retrieve context from Pinecone
