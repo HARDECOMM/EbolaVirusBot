@@ -6,13 +6,14 @@ from sentence_transformers import SentenceTransformer
 import google.generativeai as genai
 
 # ==================================================
-# ENV SETUP
+# ENVIRONMENT SETUP
 # ==================================================
 load_dotenv()
 
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
+# Configure Gemini
 genai.configure(api_key=GEMINI_API_KEY)
 
 # ==================================================
@@ -31,6 +32,7 @@ pc = Pinecone(api_key=PINECONE_API_KEY)
 
 index_name = "onb"
 
+# Create index if not exists
 if index_name not in pc.list_indexes().names():
     pc.create_index(
         name=index_name,
@@ -45,15 +47,18 @@ if index_name not in pc.list_indexes().names():
 index = pc.Index(index_name)
 
 # ==================================================
-# EMBED QUERY
+# EMBEDDING FUNCTION
 # ==================================================
-def embed_query(text):
+def embed_query(text: str):
+    """Convert query into vector using HuggingFace model"""
     return embedding_model.encode(text).tolist()
 
 # ==================================================
-# RETRIEVE CONTEXT (SAFE + LIMITED)
+# RETRIEVE CONTEXT FROM PINECONE
 # ==================================================
-def retrieve_context(query, top_k=3):
+def retrieve_context(query: str, top_k: int = 3):
+    """Get relevant chunks from Pinecone"""
+
     vector = embed_query(query)
 
     result = index.query(
@@ -62,25 +67,26 @@ def retrieve_context(query, top_k=3):
         include_metadata=True
     )
 
-    texts = [m["metadata"]["text"] for m in result["matches"]]
+    texts = [match["metadata"]["text"] for match in result["matches"]]
 
-    # IMPORTANT: prevent token overflow
+    # prevent token overflow
     context = "\n\n".join(texts)
 
-    # HARD LIMIT (prevents Gemini crash)
     return context[:2500]
 
 # ==================================================
-# GENERATE ANSWER (FIXED + DEBUG SAFE)
+# GENERATE ANSWER (FIXED GEMINI)
 # ==================================================
-def generate_answer(query):
+def generate_answer(query: str):
+    """Generate response using Gemini (stable model)"""
+
     context = retrieve_context(query)
 
     prompt = f"""
 You are an Ebola Virus medical assistant.
 
 Use ONLY the context below.
-If the answer is not in context, say "I don't know".
+If answer is not found, say "I don't know".
 
 Context:
 {context}
@@ -90,19 +96,14 @@ Question:
 """
 
     try:
-        # ONLY USE ONE STABLE MODEL
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        # ✅ FIXED MODEL (WORKING FOR YOUR API)
+        model = genai.GenerativeModel("gemini-pro")
 
         response = model.generate_content(prompt)
 
-        # SAFE RETURN
-        if response and hasattr(response, "text"):
-            return response.text
-
-        return "⚠️ Empty response from Gemini."
+        return response.text
 
     except Exception as e:
-        # SHOW REAL ERROR (NO MORE SILENT FAIL)
         return f"❌ Gemini Error: {str(e)}"
 
 # ==================================================
@@ -115,8 +116,7 @@ st.set_page_config(
 )
 
 st.title("🦠 Ebola RAG Assistant")
-
-st.markdown("Ask questions about Ebola Virus using your knowledge base.")
+st.write("Ask questions using your Ebola knowledge base.")
 
 query = st.chat_input("Ask your question...")
 
