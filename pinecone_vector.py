@@ -1,78 +1,100 @@
 import os
-import time
 from dotenv import load_dotenv
 from pinecone import Pinecone, ServerlessSpec
 from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
+from sentence_transformers import SentenceTransformer
 
-import vertexai
-from vertexai.language_models import TextEmbeddingModel
-
-# =========================
-# ENV
-# =========================
+# ==================================================
+# ENV SETUP
+# ==================================================
 load_dotenv()
 
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
-PROJECT_ID = os.getenv("GOOGLE_CLOUD_PROJECT")
 
-# =========================
-# INIT VERTEX AI
-# =========================
-vertexai.init(project=PROJECT_ID, location="us-central1")
-
-embedding_model = TextEmbeddingModel.from_pretrained(
-    "textembedding-gecko@003"
+# ==================================================
+# HUGGINGFACE EMBEDDING MODEL
+# all-MiniLM-L6-v2 = 384 dimensions
+# ==================================================
+embedding_model = SentenceTransformer(
+    "sentence-transformers/all-MiniLM-L6-v2"
 )
 
-# =========================
-# PINECONE
-# =========================
+# ==================================================
+# PINECONE SETUP
+# ==================================================
 pc = Pinecone(api_key=PINECONE_API_KEY)
+
 index_name = "onb"
 
-if index_name not in pc.list_indexes().names():
+existing_indexes = pc.list_indexes().names()
+
+# ==================================================
+# CREATE INDEX IF NOT EXISTS
+# IMPORTANT:
+# dimension MUST match embedding size
+# MiniLM = 384 dimensions
+# ==================================================
+if index_name not in existing_indexes:
+
     pc.create_index(
         name=index_name,
-        dimension=768,
+        dimension=384,
         metric="cosine",
-        spec=ServerlessSpec(cloud="aws", region="us-east-1")
+        spec=ServerlessSpec(
+            cloud="aws",
+            region="us-east-1"
+        )
     )
 
 index = pc.Index(index_name)
 
-# =========================
-# LOAD PDF
-# =========================
+# ==================================================
+# LOAD PDF DOCUMENT
+# ==================================================
 loader = PyPDFLoader("combined_ebola_pdf.pdf")
-docs = loader.load()
 
+documents = loader.load()
+
+# ==================================================
+# SPLIT DOCUMENTS
+# ==================================================
 splitter = RecursiveCharacterTextSplitter(
     chunk_size=1500,
     chunk_overlap=100
 )
 
-chunks = splitter.split_documents(docs)
-texts = [c.page_content for c in chunks]
+chunks = splitter.split_documents(documents)
 
-# =========================
-# EMBEDDINGS (VERTEX AI)
-# =========================
-def embed_texts(text_list):
-    embeddings = embedding_model.get_embeddings(text_list)
-    return [e.values for e in embeddings]
+texts = [chunk.page_content for chunk in chunks]
 
-print("Embedding documents...")
-vectors = embed_texts(texts)
+# ==================================================
+# EMBED DOCUMENTS
+# ==================================================
+print("Generating embeddings...")
 
-# =========================
-# UPSERT
-# =========================
-data = [
-    (str(i), vec, {"text": txt})
-    for i, (vec, txt) in enumerate(zip(vectors, texts))
-]
+embeddings = embedding_model.encode(texts)
 
-index.upsert(vectors=data)
+# ==================================================
+# PREPARE VECTORS
+# ==================================================
+vectors = []
 
-print("INGESTION COMPLETE")
+for i, (text, embedding) in enumerate(zip(texts, embeddings)):
+
+    vectors.append(
+        (
+            str(i),
+            embedding.tolist(),
+            {"text": text}
+        )
+    )
+
+# ==================================================
+# UPSERT TO PINECONE
+# ==================================================
+print("Uploading vectors to Pinecone...")
+
+index.upsert(vectors=vectors)
+
+print("✅ Pinecone upload complete!")
