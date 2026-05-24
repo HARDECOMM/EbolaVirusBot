@@ -3,21 +3,23 @@ import streamlit as st
 from dotenv import load_dotenv
 from pinecone import Pinecone, ServerlessSpec
 from sentence_transformers import SentenceTransformer
-import google.generativeai as genai
+from google import genai
 
 # ==================================================
-# ENVIRONMENT SETUP
+# ENV SETUP
 # ==================================================
 load_dotenv()
 
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-# Configure Gemini
-genai.configure(api_key=GEMINI_API_KEY)
+# ==================================================
+# GEMINI CLIENT (NEW SDK - FIXED)
+# ==================================================
+client = genai.Client(api_key=GEMINI_API_KEY)
 
 # ==================================================
-# EMBEDDING MODEL (HUGGINGFACE - STABLE)
+# EMBEDDING MODEL (HUGGINGFACE)
 # ==================================================
 embedding_model = SentenceTransformer(
     "sentence-transformers/all-MiniLM-L6-v2"
@@ -32,7 +34,6 @@ pc = Pinecone(api_key=PINECONE_API_KEY)
 
 index_name = "onb"
 
-# Create index if not exists
 if index_name not in pc.list_indexes().names():
     pc.create_index(
         name=index_name,
@@ -50,15 +51,12 @@ index = pc.Index(index_name)
 # EMBEDDING FUNCTION
 # ==================================================
 def embed_query(text: str):
-    """Convert query into vector using HuggingFace model"""
     return embedding_model.encode(text).tolist()
 
 # ==================================================
-# RETRIEVE CONTEXT FROM PINECONE
+# RETRIEVE CONTEXT
 # ==================================================
 def retrieve_context(query: str, top_k: int = 3):
-    """Get relevant chunks from Pinecone"""
-
     vector = embed_query(query)
 
     result = index.query(
@@ -67,19 +65,14 @@ def retrieve_context(query: str, top_k: int = 3):
         include_metadata=True
     )
 
-    texts = [match["metadata"]["text"] for match in result["matches"]]
+    texts = [m["metadata"]["text"] for m in result["matches"]]
 
-    # prevent token overflow
-    context = "\n\n".join(texts)
-
-    return context[:2500]
+    return "\n\n".join(texts)[:2500]  # prevent token overflow
 
 # ==================================================
-# GENERATE ANSWER (FIXED GEMINI)
+# GENERATE ANSWER (NEW GEMINI SDK)
 # ==================================================
 def generate_answer(query: str):
-    """Generate response using Gemini (stable model)"""
-
     context = retrieve_context(query)
 
     prompt = f"""
@@ -96,10 +89,10 @@ Question:
 """
 
     try:
-        # ✅ FIXED MODEL (WORKING FOR YOUR API)
-        model = genai.GenerativeModel("gemini-pro")
-
-        response = model.generate_content(prompt)
+        response = client.models.generate_content(
+            model="gemini-1.5-flash",
+            contents=prompt
+        )
 
         return response.text
 
