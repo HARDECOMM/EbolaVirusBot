@@ -1,12 +1,12 @@
 import os
 import streamlit as st
 from dotenv import load_dotenv
-from pinecone import Pinecone, ServerlessSpec
+from pinecone import Pinecone
 from sentence_transformers import SentenceTransformer
 from google import genai
 
 # ==================================================
-# ENV SETUP
+# ENV
 # ==================================================
 load_dotenv()
 
@@ -14,12 +14,14 @@ PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 # ==================================================
-# GEMINI CLIENT (NEW SDK)
+# GEMINI CLIENT (WORKING SDK)
 # ==================================================
 client = genai.Client(api_key=GEMINI_API_KEY)
 
+GEMINI_MODEL = "models/gemini-2.5-flash"
+
 # ==================================================
-# EMBEDDINGS (HUGGINGFACE)
+# EMBEDDINGS (HUGGINGFACE - STABLE)
 # ==================================================
 embedding_model = SentenceTransformer(
     "sentence-transformers/all-MiniLM-L6-v2"
@@ -34,21 +36,10 @@ pc = Pinecone(api_key=PINECONE_API_KEY)
 
 index_name = "onb"
 
-if index_name not in pc.list_indexes().names():
-    pc.create_index(
-        name=index_name,
-        dimension=DIMENSION,
-        metric="cosine",
-        spec=ServerlessSpec(
-            cloud="aws",
-            region="us-east-1"
-        )
-    )
-
 index = pc.Index(index_name)
 
 # ==================================================
-# EMBEDDING FUNCTION
+# EMBED QUERY
 # ==================================================
 def embed_query(text: str):
     return embedding_model.encode(text).tolist()
@@ -65,43 +56,29 @@ def retrieve_context(query: str, top_k: int = 3):
         include_metadata=True
     )
 
-    texts = [m["metadata"]["text"] for m in result["matches"]]
-
-    return "\n\n".join(texts)[:2500]  # prevent token overflow
-
-# ==================================================
-# GEMINI MODEL FALLBACK SYSTEM (FIXES 404)
-# ==================================================
-def call_gemini(prompt: str):
-    """
-    Try multiple models because your API access is restricted.
-    This prevents 404 crashes completely.
-    """
-
-    models_to_try = [
-        "gemini-1.0-pro",
-        "gemini-pro",
-        "gemini-1.5-flash",
-        "gemini-1.5-pro"
+    texts = [
+        match["metadata"]["text"]
+        for match in result["matches"]
     ]
 
-    for model_name in models_to_try:
-        try:
-            response = client.models.generate_content(
-                model=model_name,
-                contents=prompt
-            )
-
-            if response and response.text:
-                return response.text
-
-        except Exception:
-            continue  # try next model
-
-    return "❌ All Gemini models failed for this API key."
+    return "\n\n".join(texts)[:3000]
 
 # ==================================================
-# GENERATE ANSWER
+# GEMINI CALL (STABLE)
+# ==================================================
+def call_gemini(prompt: str):
+    try:
+        response = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=prompt
+        )
+        return response.text
+
+    except Exception as e:
+        return f"❌ Gemini Error: {str(e)}"
+
+# ==================================================
+# RAG RESPONSE
 # ==================================================
 def generate_answer(query: str):
     context = retrieve_context(query)
@@ -126,16 +103,15 @@ Question:
 # ==================================================
 st.set_page_config(
     page_title="Ebola RAG Assistant",
-    page_icon="🦠",
-    layout="centered"
+    page_icon="🦠"
 )
 
 st.title("🦠 Ebola RAG Assistant")
-st.write("Ask questions using your Ebola knowledge base.")
 
-query = st.chat_input("Ask your question...")
+query = st.chat_input("Ask your question about Ebola...")
 
 if query:
+
     with st.chat_message("user"):
         st.write(query)
 
