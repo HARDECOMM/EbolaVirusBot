@@ -6,40 +6,32 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from sentence_transformers import SentenceTransformer
 
 # ==================================================
-# ENV SETUP
+# ENV
 # ==================================================
 load_dotenv()
 
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 
 # ==================================================
-# HUGGINGFACE EMBEDDING MODEL
-# all-MiniLM-L6-v2 = 384 dimensions
+# EMBEDDING MODEL
 # ==================================================
 embedding_model = SentenceTransformer(
     "sentence-transformers/all-MiniLM-L6-v2"
 )
 
+DIMENSION = 384
+
 # ==================================================
-# PINECONE SETUP
+# PINECONE INIT
 # ==================================================
 pc = Pinecone(api_key=PINECONE_API_KEY)
 
 index_name = "onb"
 
-existing_indexes = pc.list_indexes().names()
-
-# ==================================================
-# CREATE INDEX IF NOT EXISTS
-# IMPORTANT:
-# dimension MUST match embedding size
-# MiniLM = 384 dimensions
-# ==================================================
-if index_name not in existing_indexes:
-
+if index_name not in pc.list_indexes().names():
     pc.create_index(
         name=index_name,
-        dimension=384,
+        dimension=DIMENSION,
         metric="cosine",
         spec=ServerlessSpec(
             cloud="aws",
@@ -50,51 +42,33 @@ if index_name not in existing_indexes:
 index = pc.Index(index_name)
 
 # ==================================================
-# LOAD PDF DOCUMENT
+# LOAD PDF
 # ==================================================
 loader = PyPDFLoader("combined_ebola_pdf.pdf")
+docs = loader.load()
 
-documents = loader.load()
-
-# ==================================================
-# SPLIT DOCUMENTS
-# ==================================================
 splitter = RecursiveCharacterTextSplitter(
-    chunk_size=1500,
-    chunk_overlap=100
+    chunk_size=1200,
+    chunk_overlap=150
 )
 
-chunks = splitter.split_documents(documents)
+chunks = splitter.split_documents(docs)
 
-texts = [chunk.page_content for chunk in chunks]
-
-# ==================================================
-# EMBED DOCUMENTS
-# ==================================================
-print("Generating embeddings...")
-
-embeddings = embedding_model.encode(texts)
+texts = [c.page_content for c in chunks]
 
 # ==================================================
-# PREPARE VECTORS
+# EMBEDDINGS
 # ==================================================
-vectors = []
-
-for i, (text, embedding) in enumerate(zip(texts, embeddings)):
-
-    vectors.append(
-        (
-            str(i),
-            embedding.tolist(),
-            {"text": text}
-        )
-    )
+vectors = embedding_model.encode(texts).tolist()
 
 # ==================================================
-# UPSERT TO PINECONE
+# UPSERT
 # ==================================================
-print("Uploading vectors to Pinecone...")
+data = [
+    (str(i), vec, {"text": txt})
+    for i, (vec, txt) in enumerate(zip(vectors, texts))
+]
 
-index.upsert(vectors=vectors)
+index.upsert(vectors=data)
 
-print("✅ Pinecone upload complete!")
+print("✅ Ingestion complete")
