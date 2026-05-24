@@ -2,31 +2,27 @@ import os
 import streamlit as st
 from dotenv import load_dotenv
 from pinecone import Pinecone, ServerlessSpec
-from langchain_community.document_loaders import PyPDFLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
 from sentence_transformers import SentenceTransformer
 import google.generativeai as genai
 
 # ==================================================
-# ENVIRONMENT VARIABLES
+# ENV SETUP
 # ==================================================
 load_dotenv()
 
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-# Configure Gemini API
 genai.configure(api_key=GEMINI_API_KEY)
 
 # ==================================================
-# HUGGINGFACE EMBEDDING MODEL (NO BILLING ISSUES)
+# EMBEDDING MODEL (HUGGINGFACE - STABLE)
 # ==================================================
-# This model converts text → vector (384 dimensions)
 embedding_model = SentenceTransformer(
     "sentence-transformers/all-MiniLM-L6-v2"
 )
 
-EMBEDDING_DIM = 384
+DIMENSION = 384
 
 # ==================================================
 # PINECONE SETUP
@@ -35,11 +31,10 @@ pc = Pinecone(api_key=PINECONE_API_KEY)
 
 index_name = "onb"
 
-# Create index automatically if it doesn't exist
 if index_name not in pc.list_indexes().names():
     pc.create_index(
         name=index_name,
-        dimension=EMBEDDING_DIM,
+        dimension=DIMENSION,
         metric="cosine",
         spec=ServerlessSpec(
             cloud="aws",
@@ -50,57 +45,15 @@ if index_name not in pc.list_indexes().names():
 index = pc.Index(index_name)
 
 # ==================================================
-# LOAD & INDEX PDF (RUNS ON FIRST APP START)
+# EMBED QUERY
 # ==================================================
-@st.cache_resource
-def build_vector_store():
-    """
-    Loads PDF, splits into chunks, embeds, and stores in Pinecone.
-    Runs only once per Streamlit session.
-    """
-
-    loader = PyPDFLoader("combined_ebola_pdf.pdf")
-    documents = loader.load()
-
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=1500,
-        chunk_overlap=100
-    )
-
-    chunks = splitter.split_documents(documents)
-    texts = [chunk.page_content for chunk in chunks]
-
-    # Convert text chunks → embeddings
-    embeddings = embedding_model.encode(texts)
-
-    # Prepare vectors for Pinecone
-    vectors = [
-        (str(i), emb.tolist(), {"text": txt})
-        for i, (txt, emb) in enumerate(zip(texts, embeddings))
-    ]
-
-    # Upload to Pinecone
-    index.upsert(vectors=vectors)
-
-    return "Vector store ready"
-
-
-# Build vector store on startup
-build_vector_store()
-
-# ==================================================
-# EMBED USER QUERY
-# ==================================================
-def embed_query(text: str):
-    """Convert user question into vector"""
+def embed_query(text):
     return embedding_model.encode(text).tolist()
 
 # ==================================================
-# RETRIEVE CONTEXT FROM PINECONE
+# RETRIEVE CONTEXT (SAFE + LIMITED)
 # ==================================================
-def retrieve_context(query: str, top_k: int = 5):
-    """Search Pinecone for similar documents"""
-
+def retrieve_context(query, top_k=3):
     vector = embed_query(query)
 
     result = index.query(
@@ -109,27 +62,25 @@ def retrieve_context(query: str, top_k: int = 5):
         include_metadata=True
     )
 
-    return "\n\n".join(
-        match["metadata"]["text"]
-        for match in result["matches"]
-    )
+    texts = [m["metadata"]["text"] for m in result["matches"]]
+
+    # IMPORTANT: prevent token overflow
+    context = "\n\n".join(texts)
+
+    # HARD LIMIT (prevents Gemini crash)
+    return context[:2500]
 
 # ==================================================
-# SAFE GEMINI GENERATION (WITH FALLBACK MODEL)
+# GENERATE ANSWER (FIXED + DEBUG SAFE)
 # ==================================================
-def generate_answer(query: str):
-    """
-    Generates answer using Gemini.
-    Includes fallback model handling for Streamlit Cloud issues.
-    """
-
+def generate_answer(query):
     context = retrieve_context(query)
 
     prompt = f"""
 You are an Ebola Virus medical assistant.
 
-Use ONLY the context below to answer.
-If not found, say you don't know.
+Use ONLY the context below.
+If the answer is not in context, say "I don't know".
 
 Context:
 {context}
@@ -138,24 +89,21 @@ Question:
 {query}
 """
 
-    # Try multiple models for stability (Streamlit-safe)
-    models_to_try = [
-        "gemini-1.5-pro",
-        "gemini-1.5-flash",
-        "gemini-pro"
-    ]
+    try:
+        # ONLY USE ONE STABLE MODEL
+        model = genai.GenerativeModel("gemini-1.5-flash")
 
-    for model_name in models_to_try:
-        try:
-            model = genai.GenerativeModel(model_name)
-            response = model.generate_content(prompt)
+        response = model.generate_content(prompt)
+
+        # SAFE RETURN
+        if response and hasattr(response, "text"):
             return response.text
 
-        except Exception:
-            # Try next model if current fails
-            continue
+        return "⚠️ Empty response from Gemini."
 
-    return "⚠️ Unable to generate response at this time. Please try again later."
+    except Exception as e:
+        # SHOW REAL ERROR (NO MORE SILENT FAIL)
+        return f"❌ Gemini Error: {str(e)}"
 
 # ==================================================
 # STREAMLIT UI
@@ -168,22 +116,16 @@ st.set_page_config(
 
 st.title("🦠 Ebola RAG Assistant")
 
-st.markdown(
-    "Ask medical questions about Ebola Virus using your knowledge base."
-)
+st.markdown("Ask questions about Ebola Virus using your knowledge base.")
 
-# User input
 query = st.chat_input("Ask your question...")
 
 if query:
 
-    # Show user message
     with st.chat_message("user"):
         st.write(query)
 
-    # Show assistant response
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
-
             answer = generate_answer(query)
             st.write(answer)
