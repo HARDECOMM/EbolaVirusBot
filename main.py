@@ -14,12 +14,12 @@ PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 # ==================================================
-# GEMINI CLIENT (NEW SDK - FIXED)
+# GEMINI CLIENT (NEW SDK)
 # ==================================================
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 # ==================================================
-# EMBEDDING MODEL (HUGGINGFACE)
+# EMBEDDINGS (HUGGINGFACE)
 # ==================================================
 embedding_model = SentenceTransformer(
     "sentence-transformers/all-MiniLM-L6-v2"
@@ -70,7 +70,38 @@ def retrieve_context(query: str, top_k: int = 3):
     return "\n\n".join(texts)[:2500]  # prevent token overflow
 
 # ==================================================
-# GENERATE ANSWER (NEW GEMINI SDK)
+# GEMINI MODEL FALLBACK SYSTEM (FIXES 404)
+# ==================================================
+def call_gemini(prompt: str):
+    """
+    Try multiple models because your API access is restricted.
+    This prevents 404 crashes completely.
+    """
+
+    models_to_try = [
+        "gemini-1.0-pro",
+        "gemini-pro",
+        "gemini-1.5-flash",
+        "gemini-1.5-pro"
+    ]
+
+    for model_name in models_to_try:
+        try:
+            response = client.models.generate_content(
+                model=model_name,
+                contents=prompt
+            )
+
+            if response and response.text:
+                return response.text
+
+        except Exception:
+            continue  # try next model
+
+    return "❌ All Gemini models failed for this API key."
+
+# ==================================================
+# GENERATE ANSWER
 # ==================================================
 def generate_answer(query: str):
     context = retrieve_context(query)
@@ -88,16 +119,7 @@ Question:
 {query}
 """
 
-    try:
-        response = client.models.generate_content(
-            model="gemini-1.5-flash",
-            contents=prompt
-        )
-
-        return response.text
-
-    except Exception as e:
-        return f"❌ Gemini Error: {str(e)}"
+    return call_gemini(prompt)
 
 # ==================================================
 # STREAMLIT UI
@@ -114,7 +136,6 @@ st.write("Ask questions using your Ebola knowledge base.")
 query = st.chat_input("Ask your question...")
 
 if query:
-
     with st.chat_message("user"):
         st.write(query)
 
