@@ -6,7 +6,7 @@ from sentence_transformers import SentenceTransformer
 from google import genai
 
 # ==================================================
-# ENV
+# ENV SETUP
 # ==================================================
 load_dotenv()
 
@@ -14,14 +14,14 @@ PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 # ==================================================
-# GEMINI CLIENT (WORKING SDK)
+# GEMINI CLIENT
 # ==================================================
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 GEMINI_MODEL = "models/gemini-2.5-flash"
 
 # ==================================================
-# EMBEDDINGS (HUGGINGFACE - STABLE)
+# EMBEDDING MODEL
 # ==================================================
 embedding_model = SentenceTransformer(
     "sentence-transformers/all-MiniLM-L6-v2"
@@ -33,10 +33,7 @@ DIMENSION = 384
 # PINECONE SETUP
 # ==================================================
 pc = Pinecone(api_key=PINECONE_API_KEY)
-
-index_name = "onb"
-
-index = pc.Index(index_name)
+index = pc.Index("onb")
 
 # ==================================================
 # EMBED QUERY
@@ -45,9 +42,9 @@ def embed_query(text: str):
     return embedding_model.encode(text).tolist()
 
 # ==================================================
-# RETRIEVE CONTEXT
+# RETRIEVE CONTEXT (IMPROVED)
 # ==================================================
-def retrieve_context(query: str, top_k: int = 3):
+def retrieve_context(query: str, top_k: int = 4):
     vector = embed_query(query)
 
     result = index.query(
@@ -56,62 +53,74 @@ def retrieve_context(query: str, top_k: int = 3):
         include_metadata=True
     )
 
-    texts = [
-        match["metadata"]["text"]
-        for match in result["matches"]
-    ]
+    if not result.get("matches"):
+        return ""
 
-    return "\n\n".join(texts)[:3000]
+    texts = [m["metadata"]["text"] for m in result["matches"]]
+
+    return "\n\n".join(texts)
 
 # ==================================================
-# GEMINI CALL (STABLE)
+# HYBRID GEMINI RESPONSE (IMPORTANT FIX)
 # ==================================================
-def call_gemini(prompt: str):
+def generate_answer(query: str):
+    context = retrieve_context(query)
+
+    # detect weak retrieval
+    use_fallback = len(context.strip()) < 80
+
+    prompt = f"""
+You are an expert Ebola Virus medical assistant.
+
+You MUST respond in a structured medical format:
+
+### 🦠 Overview
+### 📊 Key Facts
+### ⚠️ Symptoms
+### 🔬 Transmission
+### 🧪 Diagnosis
+### 💊 Treatment
+### 🛡️ Prevention
+
+Rules:
+- If context is available, prioritize it.
+- If context is weak, use general medical knowledge about Ebola.
+- Never go outside Ebola-related medical information.
+- Be clear, accurate, and educational.
+
+Context:
+{context if context else "No context available from knowledge base."}
+
+Question:
+{query}
+"""
+
     try:
         response = client.models.generate_content(
             model=GEMINI_MODEL,
             contents=prompt
         )
+
         return response.text
 
     except Exception as e:
         return f"❌ Gemini Error: {str(e)}"
 
 # ==================================================
-# RAG RESPONSE
-# ==================================================
-def generate_answer(query: str):
-    context = retrieve_context(query)
-
-    prompt = f"""
-You are an Ebola Virus medical assistant.
-
-Use ONLY the context below.
-If answer is not found, say "I don't know".
-
-Context:
-{context}
-
-Question:
-{query}
-"""
-
-    return call_gemini(prompt)
-
-# ==================================================
 # STREAMLIT UI
 # ==================================================
 st.set_page_config(
     page_title="Ebola RAG Assistant",
-    page_icon="🦠"
+    page_icon="🦠",
+    layout="centered"
 )
 
 st.title("🦠 Ebola RAG Assistant")
+st.write("Ask structured medical questions about Ebola Virus.")
 
-query = st.chat_input("Ask your question about Ebola...")
+query = st.chat_input("Ask your question...")
 
 if query:
-
     with st.chat_message("user"):
         st.write(query)
 
