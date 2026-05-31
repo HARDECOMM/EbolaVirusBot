@@ -13,21 +13,20 @@ load_dotenv()
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
+if not PINECONE_API_KEY or not GEMINI_API_KEY:
+    raise ValueError("Missing API keys in environment variables")
+
 # ==================================================
-# GEMINI CLIENT
+# GEMINI CLIENT (NEW SDK)
 # ==================================================
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 GEMINI_MODEL = "models/gemini-2.5-flash"
 
 # ==================================================
-# EMBEDDING MODEL
+# EMBEDDING MODEL (HUGGINGFACE)
 # ==================================================
-embedding_model = SentenceTransformer(
-    "sentence-transformers/all-MiniLM-L6-v2"
-)
-
-DIMENSION = 384
+embedding_model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
 
 # ==================================================
 # PINECONE SETUP
@@ -42,9 +41,9 @@ def embed_query(text: str):
     return embedding_model.encode(text).tolist()
 
 # ==================================================
-# RETRIEVE CONTEXT (IMPROVED)
+# RETRIEVE CONTEXT
 # ==================================================
-def retrieve_context(query: str, top_k: int = 4):
+def retrieve_context(query: str, top_k: int = 3):
     vector = embed_query(query)
 
     result = index.query(
@@ -53,46 +52,56 @@ def retrieve_context(query: str, top_k: int = 4):
         include_metadata=True
     )
 
-    if not result.get("matches"):
+    matches = result.get("matches", [])
+    if not matches:
         return ""
 
-    texts = [m["metadata"]["text"] for m in result["matches"]]
-
-    return "\n\n".join(texts)
+    return "\n\n".join(
+        m["metadata"]["text"] for m in matches if "text" in m["metadata"]
+    )
 
 # ==================================================
-# HYBRID GEMINI RESPONSE (IMPORTANT FIX)
+# PROMPT ENGINE (FIXED RAG LOGIC)
 # ==================================================
 def generate_answer(query: str):
     context = retrieve_context(query)
 
     # detect weak retrieval
-    use_fallback = len(context.strip()) < 80
+    has_context = len(context.strip()) > 50
 
-    prompt = f"""
-You are an expert Ebola Virus medical assistant.
+    # =========================
+    # STRICT RAG PROMPT
+    # =========================
+    if has_context:
+        prompt = f"""
+You are an Ebola Virus medical assistant.
 
-You MUST respond in a structured medical format:
-
-### 🦠 Overview
-### 📊 Key Facts
-### ⚠️ Symptoms
-### 🔬 Transmission
-### 🧪 Diagnosis
-### 💊 Treatment
-### 🛡️ Prevention
-
-Rules:
-- If context is available, prioritize it.
-- If context is weak, use general medical knowledge about Ebola.
-- Never go outside Ebola-related medical information.
-- Be clear, accurate, and educational.
+IMPORTANT RULES:
+- Answer ONLY using the context below
+- Do NOT hallucinate or add extra medical facts
+- If context is insufficient, say: "Not enough information in the knowledge base."
 
 Context:
-{context if context else "No context available from knowledge base."}
+{context}
 
 Question:
 {query}
+
+Answer:
+"""
+    else:
+        prompt = f"""
+You are an Ebola Virus medical assistant.
+
+No relevant context was found in the knowledge base.
+
+Answer ONLY if you are certain, otherwise say:
+"I could not find this in the Ebola knowledge base."
+
+Question:
+{query}
+
+Answer:
 """
 
     try:
@@ -101,7 +110,7 @@ Question:
             contents=prompt
         )
 
-        return response.text
+        return response.text.strip()
 
     except Exception as e:
         return f"❌ Gemini Error: {str(e)}"
@@ -110,13 +119,13 @@ Question:
 # STREAMLIT UI
 # ==================================================
 st.set_page_config(
-    page_title="Ebola RAG Assistant",
+    page_title="🦠 Ebola RAG Assistant",
     page_icon="🦠",
     layout="centered"
 )
 
 st.title("🦠 Ebola RAG Assistant")
-st.write("Ask structured medical questions about Ebola Virus.")
+st.write("Ask structured medical questions about Ebola Virus using your knowledge base.")
 
 query = st.chat_input("Ask your question...")
 
@@ -128,3 +137,6 @@ if query:
         with st.spinner("Thinking..."):
             answer = generate_answer(query)
             st.write(answer)
+
+    # OPTIONAL DEBUG (UNCOMMENT IF NEEDED)
+    # st.expander("Retrieved Context").write(retrieve_context(query))
